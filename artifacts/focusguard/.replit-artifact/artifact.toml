@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "FocusGuard AI"
+version = "1.0.0"
+id = "artifacts/focusguard"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 24937
+
+[services.development]
+run = "pnpm --filter @workspace/focusguard run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/focusguard", "run", "build" ]
+publicDir = "artifacts/focusguard/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "24937"
+BASE_PATH = "/"

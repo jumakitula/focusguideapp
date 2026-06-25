@@ -3,13 +3,21 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: FocusGuard AI API - Focus session management with Google Calendar and Gemini AI
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: focus
+    description: Focus session operations
+  - name: settings
+    description: User settings operations
+  - name: calendar
+    description: Calendar operations
+  - name: completion
+    description: Task completion verification
 paths:
   /healthz:
     get:
@@ -24,13 +32,379 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /focus/active/{userEmail}:
+    get:
+      operationId: getActiveSession
+      tags: [focus]
+      summary: Get active focus session for user
+      description: Returns the current active focus session if one exists
+      parameters:
+        - name: userEmail
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Active session found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FocusSession"
+        "404":
+          description: No active session
+
+  /focus/sessions/{userEmail}:
+    get:
+      operationId: listSessions
+      tags: [focus]
+      summary: List all focus sessions for user
+      parameters:
+        - name: userEmail
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of sessions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FocusSession"
+
+  /focus/sync/{userEmail}:
+    post:
+      operationId: syncCalendar
+      tags: [focus]
+      summary: Sync Google Calendar and generate focus sessions with Gemini AI
+      parameters:
+        - name: userEmail
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Sync result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SyncResult"
+
+  /focus/sessions/{sessionId}/override:
+    post:
+      operationId: logOverride
+      tags: [focus]
+      summary: Log a focus session override
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OverrideInput"
+      responses:
+        "200":
+          description: Override logged
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OverrideResult"
+
+  /focus/sessions/{sessionId}/complete:
+    post:
+      operationId: submitCompletion
+      tags: [completion]
+      summary: Submit proof of task completion for AI verification
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CompletionInput"
+      responses:
+        "200":
+          description: Completion verification result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CompletionResult"
+
+  /settings/{userEmail}:
+    get:
+      operationId: getUserSettings
+      tags: [settings]
+      summary: Get user settings
+      parameters:
+        - name: userEmail
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: User settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserSettings"
+    put:
+      operationId: updateUserSettings
+      tags: [settings]
+      summary: Update user settings
+      parameters:
+        - name: userEmail
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserSettingsInput"
+      responses:
+        "200":
+          description: Updated settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserSettings"
+
+  /focus/dashboard/{userEmail}:
+    get:
+      operationId: getDashboard
+      tags: [focus]
+      summary: Get dashboard summary with stats and upcoming sessions
+      parameters:
+        - name: userEmail
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Dashboard summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardSummary"
+
+  /calendar/events/{userEmail}:
+    get:
+      operationId: getCalendarEvents
+      tags: [calendar]
+      summary: Get upcoming calendar events
+      parameters:
+        - name: userEmail
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of calendar events
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CalendarEvent"
+
 components:
   schemas:
     HealthStatus:
       type: object
+      required: [status]
       properties:
         status:
           type: string
-      required:
-        - status
 
+    FocusSession:
+      type: object
+      required: [session_id, event_title, start_time, end_time, focus_intensity, blocked_sites, emergency_sites, is_active]
+      properties:
+        session_id:
+          type: string
+        event_title:
+          type: string
+        start_time:
+          type: string
+        end_time:
+          type: string
+        focus_intensity:
+          type: string
+        blocked_sites:
+          type: array
+          items:
+            type: string
+        emergency_sites:
+          type: array
+          items:
+            type: string
+        is_active:
+          type: boolean
+        ai_reason:
+          type: ["string", "null"]
+        completed:
+          type: boolean
+        completion_verified:
+          type: boolean
+        user_email:
+          type: string
+        event_id:
+          type: ["string", "null"]
+        override_count:
+          type: integer
+
+    SyncResult:
+      type: object
+      required: [sessions_created, sessions_updated, message]
+      properties:
+        sessions_created:
+          type: integer
+        sessions_updated:
+          type: integer
+        message:
+          type: string
+        events_analyzed:
+          type: integer
+
+    OverrideInput:
+      type: object
+      required: [user_email, reason]
+      properties:
+        user_email:
+          type: string
+        reason:
+          type: string
+
+    OverrideResult:
+      type: object
+      required: [success, message]
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+
+    CompletionInput:
+      type: object
+      required: [user_email]
+      properties:
+        user_email:
+          type: string
+        description:
+          type: string
+        image_base64:
+          type: string
+
+    CompletionResult:
+      type: object
+      required: [verified, message]
+      properties:
+        verified:
+          type: boolean
+        message:
+          type: string
+        ai_analysis:
+          type: ["string", "null"]
+        confidence:
+          type: ["number", "null"]
+
+    UserSettings:
+      type: object
+      required: [user_email, blocked_sites, emergency_sites, trigger_intensity, advance_minutes]
+      properties:
+        user_email:
+          type: string
+        blocked_sites:
+          type: array
+          items:
+            type: string
+        emergency_sites:
+          type: array
+          items:
+            type: string
+        trigger_intensity:
+          type: string
+        advance_minutes:
+          type: integer
+        calendar_connected:
+          type: boolean
+        google_access_token:
+          type: ["string", "null"]
+
+    UserSettingsInput:
+      type: object
+      properties:
+        blocked_sites:
+          type: array
+          items:
+            type: string
+        emergency_sites:
+          type: array
+          items:
+            type: string
+        trigger_intensity:
+          type: string
+        advance_minutes:
+          type: integer
+        google_access_token:
+          type: ["string", "null"]
+
+    DashboardSummary:
+      type: object
+      required: [active_session, upcoming_sessions, total_sessions_today, focus_minutes_today, top_blocked_sites]
+      properties:
+        active_session:
+          oneOf:
+            - $ref: "#/components/schemas/FocusSession"
+            - type: "null"
+        upcoming_sessions:
+          type: array
+          items:
+            $ref: "#/components/schemas/FocusSession"
+        total_sessions_today:
+          type: integer
+        focus_minutes_today:
+          type: integer
+        top_blocked_sites:
+          type: array
+          items:
+            type: string
+
+    CalendarEvent:
+      type: object
+      required: [event_id, title, start_time, end_time]
+      properties:
+        event_id:
+          type: string
+        title:
+          type: string
+        start_time:
+          type: string
+        end_time:
+          type: string
+        description:
+          type: ["string", "null"]
+        ai_focus_score:
+          type: ["number", "null"]
+        suggested_intensity:
+          type: ["string", "null"]
