@@ -225,7 +225,6 @@ fun ActiveSessionContent(
             .size(12.dp)
             .clip(CircleShape)
             .background(primaryGreen.copy(alpha = alpha))
-            .align(Alignment.CenterHorizontally)
     )
 
     Spacer(modifier = Modifier.height(12.dp))
@@ -288,7 +287,6 @@ fun StandbyContent(textPrimary: Color, textSecondary: Color) {
             .size(12.dp)
             .clip(CircleShape)
             .background(Color(0xFF475569))
-            .align(Alignment.CenterHorizontally)
     )
 
     Spacer(modifier = Modifier.height(12.dp))

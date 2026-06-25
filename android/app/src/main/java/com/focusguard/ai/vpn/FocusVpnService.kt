@@ -90,7 +90,7 @@ class FocusVpnService : VpnService() {
         val packet = ByteArray(32767)
         val buffer = ByteBuffer.wrap(packet)
 
-        while (isActive) {
+        while (serviceScope.isActive) {
             try {
                 val length = withContext(Dispatchers.IO) {
                     inputStream.read(packet)
@@ -125,7 +125,7 @@ class FocusVpnService : VpnService() {
                     }
                 }
             } catch (e: Exception) {
-                if (isActive) {
+                if (serviceScope.isActive) {
                     Log.e(TAG, "Packet loop error", e)
                 }
             }
