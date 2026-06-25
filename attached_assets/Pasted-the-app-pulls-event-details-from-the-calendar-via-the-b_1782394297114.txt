@@ -1,0 +1,332 @@
+the app pulls event details from the calendar via the backend. In other words, the backend looks at upcoming Google Calendar events, decides when focus mode should be active based on using gemini ai and also after the time of focus the user should upload something to show the task was completed and ai is going analyze if truly reflects complete then it will stop the block mode, and then the Android VPN app activates the block at those times. Adding that explanation will tie it all together.
+
+---
+
+## Prompt 1 — Project Scaffold
+
+Paste into Replit AI / Claude / Copilot:
+
+```
+Create a complete Android project structure for an app called "FocusGuard AI" written in Kotlin.
+
+Use these specs:
+- minSdk 26, targetSdk 34
+- Single Activity with Jetpack Compose UI
+- Package name: com.focusguard.ai
+
+Create this exact folder structure:
+app/
+  src/main/
+    java/com/focusguard/ai/
+      MainActivity.kt
+      vpn/
+        FocusVpnService.kt
+        DnsPacketParser.kt
+        BlocklistManager.kt
+      api/
+        FocusApiClient.kt
+        Models.kt
+      ui/
+        HomeScreen.kt
+        PermissionScreen.kt
+        theme/Theme.kt
+    res/
+      layout/ (empty, using Compose)
+      values/strings.xml
+      values/colors.xml
+      xml/network_security_config.xml
+  AndroidManifest.xml
+build.gradle (app level)
+build.gradle (project level)
+gradle.properties
+
+In build.gradle app level include these dependencies:
+- Jetpack Compose BOM 2024.02.00
+- compose material3
+- lifecycle-runtime-ktx
+- okhttp3 4.12.0
+- gson 2.10.1
+- kotlinx-coroutines-android 1.7.3
+- work-runtime-ktx 2.9.0
+
+Show the complete content of every file listed above.
+```
+
+---
+
+## Prompt 2 — AndroidManifest
+
+```
+Write the complete AndroidManifest.xml for FocusGuard AI Android app.
+
+It must include:
+1. BIND_VPN_SERVICE permission (system permission for VpnService)
+2. INTERNET permission
+3. FOREGROUND_SERVICE permission
+4. RECEIVE_BOOT_COMPLETED permission (to restart VPN after phone reboot)
+5. POST_NOTIFICATIONS permission
+
+Register these components:
+- MainActivity as MAIN + LAUNCHER activity with portrait orientation
+- FocusVpnService as a Service with:
+  - action android.net.VpnService
+  - permission android.permission.BIND_VPN_SERVICE
+  - foreground service type: connectedDevice
+- A BroadcastReceiver called BootReceiver for BOOT_COMPLETED
+- A WorkManager worker called SessionCheckWorker
+
+Add network security config pointing to res/xml/network_security_config.xml that allows cleartext traffic to 10.0.2.2 (emulator localhost) and 192.168.0.0/16 for local dev.
+
+Show the complete XML.
+```
+
+---
+
+## Prompt 3 — VPN Service Core
+
+```
+Write the complete FocusVpnService.kt for an Android VPN app that blocks domains at the DNS level.
+
+It must:
+1. Extend VpnService
+2. On startVpn():
+   - Build a VPN interface using Builder() with:
+     - IP address 10.0.0.2/24
+     - Route 0.0.0.0/0 (capture all traffic)
+     - DNS server 8.8.8.8
+     - MTU 1500
+     - Session name "FocusGuard AI"
+   - Open the tun interface as a FileDescriptor
+   - Start a coroutine that reads packets from the interface in a loop
+3. Packet processing loop:
+   - Read incoming packets into a ByteBuffer
+   - Pass each packet to DnsPacketParser.isDnsQuery(packet)
+   - If it IS a DNS query, extract the domain name
+   - Check if domain is in BlocklistManager.isBlocked(domain)
+   - If blocked: drop the packet (don't forward it) and log "Blocked: domain"
+   - If not blocked: forward using ParcelFileDescriptor write back to tun
+4. On stopVpn(): close the interface, cancel coroutines, stop foreground service
+5. Run as a foreground service with a persistent notification showing:
+   - "FocusGuard Active - [event name]" when blocking
+   - "FocusGuard Standby" when not blocking
+6. Expose these methods: startVpn(blockedDomains: List<String>, eventName: String) and stopVpn()
+
+Use Kotlin coroutines for the packet loop. Include all imports. Show complete file.
+```
+
+---
+
+## Prompt 4 — DNS Packet Parser
+
+```
+Write DnsPacketParser.kt in Kotlin for the FocusGuard AI Android app.
+
+This utility object must:
+1. Have a function isDnsQuery(packet: ByteArray): Boolean that:
+   - Checks if the packet is a UDP packet (IP protocol byte = 17)
+   - Checks if destination port is 53
+   - Returns true if both conditions met
+
+2. Have a function extractDomain(packet: ByteArray): String? that:
+   - Skips the IP header (first 20 bytes for IPv4)
+   - Skips the UDP header (next 8 bytes)
+   - Parses the DNS question section:
+     - Reads length-prefixed labels until null byte
+     - Joins labels with dots to form domain (e.g. "www.instagram.com")
+   - Returns null if parsing fails for any reason
+
+3. Have a function buildBlockedResponse(originalPacket: ByteArray): ByteArray that:
+   - Takes the original DNS query packet
+   - Returns a DNS response packet with RCODE = 3 (NXDOMAIN)
+   - Copies the transaction ID from the original query
+   - Sets QR bit to 1 (response)
+   - This is what gets sent back to the app trying to resolve a blocked domain
+
+Include full byte-level parsing with clear comments explaining each offset. Show complete file.
+```
+
+---
+
+## Prompt 5 — Blocklist Manager
+
+```
+Write BlocklistManager.kt as a Kotlin singleton object for FocusGuard AI.
+
+It must:
+1. Hold a mutable set of currently blocked domains: private val blockedDomains = mutableSetOf<String>()
+2. Hold a set of emergency (always allowed) domains: private val emergencyDomains = mutableSetOf<String>()
+3. Have default blocked domains list:
+   instagram.com, facebook.com, twitter.com, x.com, tiktok.com, youtube.com, reddit.com, snapchat.com, pinterest.com, netflix.com, primevideo.com, hotstar.com
+4. Have default emergency domains:
+   gmail.com, google.com, meet.google.com, maps.google.com, whatsapp.com, 10.0.2.2, localhost
+5. Function isBlocked(domain: String): Boolean that:
+   - Returns false immediately if domain matches any emergencyDomains (substring match, so mail.google.com matches google.com)
+   - Returns true if domain matches any blockedDomains (substring match)
+   - Returns false otherwise
+6. Function updateFromSession(blockedSites: List<String>, emergencySites: List<String>) that replaces current lists with new ones from the API
+7. Function addTemporaryAllowance(domain: String, durationMinutes: Int) that adds to emergency list and schedules removal after durationMinutes using a coroutine delay
+8. Function getStatus(): Map<String, Any> returning current counts and lists for the UI
+
+Show complete file with all imports.
+```
+
+---
+
+## Prompt 6 — API Client
+
+```
+Write FocusApiClient.kt in Kotlin for FocusGuard AI using OkHttp and Gson.
+
+It must:
+1. Be a singleton object with a configurable BASE_URL (default: "http://10.0.2.2:8000" for emulator, overridable via a companion object constant)
+2. Have a data class ActiveSession matching this JSON:
+   {
+     "session_id": "string",
+     "event_title": "string", 
+     "start_time": "string",
+     "end_time": "string",
+     "focus_intensity": "string",
+     "blocked_sites": ["string"],
+     "emergency_sites": ["string"],
+     "is_active": true,
+     "ai_reason": "string"
+   }
+3. Have a data class UserSettings with blocked_sites, emergency_sites, trigger_intensity, advance_minutes
+4. Function suspend fun getActiveSession(userEmail: String): ActiveSession? that:
+   - Calls GET /focus/active/{userEmail}
+   - Returns null if 404 or any error
+   - Returns parsed ActiveSession if 200
+5. Function suspend fun getUserSettings(userEmail: String): UserSettings that:
+   - Calls GET /settings/{userEmail}
+   - Returns default settings on error
+6. Function suspend fun logOverride(sessionId: String, userEmail: String, reason: String): Boolean
+7. All functions use Kotlin coroutines (Dispatchers.IO)
+8. Add a 10 second timeout to all requests
+
+Show complete file.
+```
+
+---
+
+## Prompt 7 — Background Session Checker (WorkManager)
+
+```
+Write SessionCheckWorker.kt for FocusGuard AI using WorkManager.
+
+This worker runs every 60 seconds and orchestrates the VPN based on active focus sessions.
+
+It must:
+1. Extend CoroutineWorker
+2. In doWork():
+   - Read userEmail from SharedPreferences key "user_email"
+   - If email is empty, return Result.success() early (not logged in)
+   - Call FocusApiClient.getActiveSession(userEmail)
+   - If session is active AND VPN is not currently running:
+     - Call BlocklistManager.updateFromSession(session.blockedSites, session.emergencySites)
+     - Start FocusVpnService via Intent with extras: blocked_domains list, event_name string
+     - Save session_id to SharedPreferences
+   - If NO active session AND VPN IS currently running:
+     - Send a broadcast to stop FocusVpnService
+     - Clear session from SharedPreferences
+   - Return Result.success()
+3. Static companion function scheduleRepeating(context: Context) that:
+   - Creates a PeriodicWorkRequest with 15 minute interval (minimum WorkManager allows)
+   - Uses ExistingPeriodicWorkPolicy.KEEP
+   - Enqueues with tag "focus_session_check"
+4. Static function scheduleOneTime(context: Context) for immediate check on demand
+
+Include a way to detect if VPN is currently running by checking a SharedPreferences boolean "vpn_active" that FocusVpnService sets on start/stop.
+
+Show complete file.
+```
+
+---
+
+## Prompt 8 — Main UI (Jetpack Compose)
+
+```
+Write the complete Jetpack Compose UI for FocusGuard AI Android app across these files:
+
+1. MainActivity.kt:
+   - Checks if VPN permission is granted using VpnService.prepare()
+   - If not granted, shows PermissionScreen
+   - If granted, shows HomeScreen
+   - Handles the VPN permission result intent
+   - On first launch, shows an email input dialog stored in SharedPreferences as "user_email"
+   - Schedules SessionCheckWorker on startup
+
+2. HomeScreen.kt — a full Compose screen with:
+   - Top bar: "FocusGuard AI" title + settings icon
+   - Status card: large card showing either:
+     - GREEN state: "Focus Mode Active" with pulsing green circle, event name, countdown timer (end_time - now), AI reason text, intensity badge
+     - GREY state: "Standby - No active focus session"
+   - "Check Now" button that triggers SessionCheckWorker one-time run and refreshes UI
+   - Blocked sites section: horizontal scrolling chips showing currently blocked domains
+   - "Connected as: email" text at bottom with a tap-to-change option
+   - Dark theme (#0F172A background, white text, green accent #22C55E for active state)
+
+3. PermissionScreen.kt:
+   - Explains why VPN permission is needed
+   - "Enable FocusGuard VPN" button that requests the permission
+   - Reassurance text: "This VPN runs entirely on your device. No traffic leaves your phone."
+
+Use Material3 components. Show all three files completely.
+```
+
+---
+
+## Prompt 9 — Build & Export APK in Codespaces
+
+Paste this into your Codespace terminal:
+
+```
+Write me the exact terminal commands to:
+
+1. Install Android SDK command line tools in a GitHub Codespace (Ubuntu) without Android Studio:
+   - Download cmdline-tools
+   - Set ANDROID_HOME environment variable
+   - Accept all SDK licenses
+   - Install build-tools;34.0.0 and platforms;android-34
+
+2. Build the FocusGuard AI Android project from terminal:
+   - Run ./gradlew assembleDebug
+   - Find the output APK path
+
+3. Install the APK on a connected Android device using ADB (or explain how to download the APK and install manually via "Install from files" on Android)
+
+4. For the hackathon demo, since judges may not have the APK installed, also write a command to run the app in an Android emulator inside Codespaces using a headless AVD
+
+Show every command in order with explanations.
+```
+
+---
+
+## Prompt 10 — Connect Android App to Your Deployed Backend
+
+```
+My FocusGuard AI Android app currently points to http://10.0.2.2:8000 (emulator localhost). 
+
+Update it for production:
+
+1. In FocusApiClient.kt, change BASE_URL to read from a BuildConfig field so it can be set at build time:
+   - In build.gradle, add buildConfigField for API_BASE_URL
+   - Development flavor: "http://10.0.2.2:8000"
+   - Production flavor: "https://[MY_CLOUD_RUN_URL]"
+
+2. In network_security_config.xml, add my Cloud Run domain to the allowed domains list so HTTPS works correctly
+
+3. Since my backend uses Google OAuth and the Android app doesn't have a browser for the full OAuth flow, add a simple email-only login for the Android app:
+   - An input screen where user types their Google email
+   - The app uses that email directly to call /focus/active/{email} and /settings/{email}
+   - Add a note explaining this is a simplified auth for the hackathon demo — full Google Sign-In for Android would use the Google Sign-In SDK
+
+4. Add a README section explaining to judges: "The Android app connects to the same FastAPI backend as the web app. Open the web app first to complete Google OAuth and set up your calendar permissions, then use the Android app for mobile focus enforcement."
+
+Show all file changes.
+```
+
+---
+
+## What This Gets You at the Hackathon
+
+The Android VPN approach directly boosts your scores on every criterion that matters. For Agentic Depth, the app autonomously monitors your backend and activates device-level blocking without any user action. For Innovation, a local VPN-based focus enforcer is genuinely uncommon in student hackathons. For Problem Solving, it works across every app on the phone — Instagram, YouTube, games, everything — not just the browser. And it runs on Google Cloud (your backend) with a Google-powered AI making the decisions, which covers the Google Technologies criterion cleanly.
